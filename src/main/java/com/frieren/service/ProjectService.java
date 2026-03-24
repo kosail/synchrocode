@@ -55,7 +55,7 @@ public class ProjectService {
      */
     @Transactional
     public Project create(Project project) {
-        if (Project.findById(project.id) != null) {
+        if (project.id != null && Project.findById(project.id) != null) {
             throw new IllegalArgumentException("El proyecto ya existe");
         }
 
