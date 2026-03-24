@@ -9,17 +9,20 @@ import java.util.UUID;
 
 @RequestScoped
 public class UserContext {
-    @Inject
-    JsonWebToken jwt;
+    @Inject JsonWebToken jwt;
 
     public UUID getUserId() {
-        return UUID.fromString(jwt.getClaim("sub"));
+        return UUID.fromString(jwt.getSubject());
     }
 
     public String role() {
-        return jwt.getClaim("user_metadata") != null
-                ? ((Map<String, Object>) jwt.getClaim("user_metadata")).get("role").toString()
-                : "programmer";
+        Map<String, Object> metadata = jwt.getClaim("user_metadata");
+
+        if (metadata != null && metadata.containsKey("role")) {
+            return metadata.get("role").toString();
+        }
+
+        return Roles.PROGRAMMER;
     }
 
     public String getEmail() {
