@@ -1,7 +1,6 @@
 package com.frieren.resource;
 
 import com.frieren.entity.Project;
-import com.frieren.security.UserContext;
 import com.frieren.service.ProjectService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -16,7 +15,6 @@ import java.util.UUID;
 @Consumes(MediaType.APPLICATION_JSON)
 public class ProjectResource {
     @Inject ProjectService service;
-    @Inject UserContext userContext;
 
     @GET
     @Path("/all")
@@ -31,8 +29,15 @@ public class ProjectResource {
     }
 
     @GET
-    public Project get() {
-        return service.get(userContext.getUserId());
+    @Path("/archive/all")
+    public List<Project> getArchived() {
+        return service.getArchived();
+    }
+
+    @GET
+    @Path("/{id}")
+    public Project get(@PathParam("id") UUID id) {
+        return service.get(id);
     }
 
     @POST
@@ -41,18 +46,20 @@ public class ProjectResource {
     }
 
     @PUT
-    public Project update(@RequestBody Project updated, @QueryParam("projectId") UUID projectId) {
+    @Path("/{id}")
+    public Project update(@RequestBody Project updated, @PathParam("id") UUID projectId) {
         return service.update(projectId, updated);
     }
 
     @PUT
-    @Path("/archive")
-    public boolean archive(@QueryParam("projectId") UUID projectId) {
+    @Path("/archive/{id}")
+    public boolean archive(@PathParam("id") UUID projectId) {
         return service.archive(projectId);
     }
 
     @DELETE
-    public boolean delete(@QueryParam("projectId") UUID projectId) {
-        return service.delete(projectId);
+    @Path("/{id}")
+    public boolean delete(@PathParam("id") UUID id) {
+        return service.delete(id);
     }
 }

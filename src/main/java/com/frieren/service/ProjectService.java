@@ -21,28 +21,49 @@ public class ProjectService {
     // pero eso luego ya que cree la tabla de Organization
 
     /**
-     * Para obtener todos los proyectos
-     * @return Lista de todos los proyectos incluyendo proyectos activos y no activos, y proyectos archivados.
+     * Para obtener todos los proyectos de la organización del usuario.
+     * @return Lista de todos los proyectos de la organización, incluyendo activos, no activos y archivados.
      */
     public List<Project> getAll() {
-        return Project.listAll();
+        UUID orgId = userContext.getOrganizationId();
+        if (orgId == null) throw new IllegalStateException("Organización perteneciente al usuario no existe");
+        return Project.list("organizationId", orgId);
     }
 
     /**
-     * Para obtener todos los proyectos activos y no archivados.
-     * @return Lista de todos los proyectos activos y no archivados.
+     * Para obtener todos los proyectos activos y no archivados de la organización del usuario.
+     * @return Lista de todos los proyectos activos y no archivados de la organización.
      */
     public List<Project> getActive() {
-        return Project.list("projectActive = true AND archivedAt IS NULL");
+        UUID orgId = userContext.getOrganizationId();
+        if (orgId == null) throw new IllegalStateException("Organización perteneciente al usuario no existe");
+        return Project.list("organizationId = ?1 AND projectActive = true AND archivedAt IS NULL", orgId);
     }
 
     /**
-     * Para obtener un proyecto buscando por ID
+     * Para obtener todos los proyectos archivados/no activos de la organización del usuario.
+     * @return Lista de todos los proyectos archivados, o null si no hay nada.
+     */
+    public List<Project> getArchived() {
+        UUID orgId = userContext.getOrganizationId();
+        if (orgId == null) throw new IllegalStateException("Organización perteneciente al usuario no existe");
+        return Project.list("organizationId = ?1 AND archivedAt IS NOT NULL", orgId);
+    }
+
+    /**
+     * Para obtener un proyecto buscando por ID, validando que pertenezca a la organización del usuario.
      * @param id Identificador/Primary key UUID del proyecto
-     * @return El proyecto o null si no existe
+     * @return El proyecto o null si no existe o no pertenece a la organización.
      */
     public Project get(UUID id) {
-        return Project.findById(id);
+        Project project = Project.findById(id);
+        if (project == null) return null;
+
+        UUID orgId = userContext.getOrganizationId();
+        if (orgId == null || !orgId.equals(project.organizationId)) {
+            return null;
+        }
+        return project;
     }
 
     /**
@@ -55,6 +76,9 @@ public class ProjectService {
      */
     @Transactional
     public Project create(Project project) {
+        UUID orgId = userContext.getOrganizationId();
+        if (orgId == null) throw new IllegalStateException("Organización perteneciente al usuario no existe");
+
         if (project.id != null && Project.findById(project.id) != null) {
             throw new IllegalArgumentException("El proyecto ya existe");
         }
@@ -68,6 +92,7 @@ public class ProjectService {
         if (Project.findById(uuid) != null) uuid = randomUUID(); // edge case of collision, but still nice to have tho
 
         project.id = uuid;
+        project.organizationId = orgId;
         project.projectActive = true;
         project.createdBy = userContext.getUserId();
         project.createdAt = now;
@@ -94,6 +119,11 @@ public class ProjectService {
         Project existing = Project.findById(projectId);
         if (existing == null) {
             throw new IllegalArgumentException("El proyecto no existe");
+        }
+
+        UUID orgId = userContext.getOrganizationId();
+        if (orgId == null || !orgId.equals(existing.organizationId)) {
+            throw new IllegalArgumentException("El usuario no tiene permisos para actualizar este proyecto");
         }
 
         if (update.name != null && !update.name.isBlank()) {
@@ -132,6 +162,11 @@ public class ProjectService {
             throw new IllegalArgumentException("El proyecto no existe");
         }
 
+        UUID orgId = userContext.getOrganizationId();
+        if (orgId == null || !orgId.equals(existing.organizationId)) {
+            throw new IllegalArgumentException("El usuario no tiene permisos para archivar este proyecto");
+        }
+
         // Si el campo archivedAt ya tiene un valor, significa que ya está archivado. No necesitamos volver a archivarlo.
         if (existing.archivedAt != null) return false;
 
@@ -151,6 +186,11 @@ public class ProjectService {
         Project existing = Project.findById(projectId);
         if (existing == null) {
             throw new IllegalArgumentException("El proyecto no existe");
+        }
+
+        UUID orgId = userContext.getOrganizationId();
+        if (orgId == null || !orgId.equals(existing.organizationId)) {
+            throw new IllegalArgumentException("El usuario no tiene permisos para eliminar este proyecto");
         }
 
         if (!existing.projectActive) return false;
