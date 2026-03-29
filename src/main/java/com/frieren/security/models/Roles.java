@@ -1,4 +1,4 @@
-package com.frieren.security;
+package com.frieren.security.models;
 
 public final class Roles {
     public static final String ADMIN = "Administrador";
