@@ -1,11 +1,11 @@
 package com.frieren.resource;
 
 import com.frieren.entity.Project;
+import com.frieren.entity.ProjectTeam;
 import com.frieren.service.ProjectService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
-import org.eclipse.microprofile.openapi.annotations.parameters.RequestBody;
 
 import java.util.List;
 import java.util.UUID;
@@ -41,13 +41,13 @@ public class ProjectResource {
     }
 
     @POST
-    public Project create(@RequestBody Project project) {
+    public Project create(Project project) {
         return service.create(project);
     }
 
     @PUT
     @Path("/{id}")
-    public Project update(@RequestBody Project updated, @PathParam("id") UUID projectId) {
+    public Project update(@PathParam("id") UUID projectId, Project updated) {
         return service.update(projectId, updated);
     }
 
@@ -57,9 +57,33 @@ public class ProjectResource {
         return service.archive(projectId);
     }
 
+    @PUT
+    @Path("/unarchive/{id}")
+    public boolean unarchive(@PathParam("id") UUID projectId) {
+        return service.unarchive(projectId);
+    }
+
     @DELETE
     @Path("/{id}")
     public boolean delete(@PathParam("id") UUID id) {
         return service.delete(id);
+    }
+
+    @POST
+    @Path("/{id}/members/{userId}")
+    public boolean addMember(@PathParam("id") UUID projectId, @PathParam("userId") UUID userId) {
+        return service.addMember(projectId, userId);
+    }
+
+    @DELETE
+    @Path("/{id}/members/{userId}")
+    public boolean removeMember(@PathParam("id") UUID projectId, @PathParam("userId") UUID userId) {
+        return service.removeMember(projectId, userId);
+    }
+
+    @GET
+    @Path("/{id}/members")
+    public List<ProjectTeam> getMembers(@PathParam("id") UUID projectId) {
+        return service.getMembers(projectId);
     }
 }

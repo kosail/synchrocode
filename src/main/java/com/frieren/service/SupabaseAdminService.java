@@ -75,6 +75,28 @@ public class SupabaseAdminService {
         sendRequest("DELETE", "/auth/v1/admin/users/" + userId, null);
     }
 
+    /**
+     * Genera una URL firmada para descargar un archivo de un bucket privado.
+     * @param bucket Nombre del bucket (ej: task-evidence)
+     * @param filePath Ruta del archivo dentro del bucket
+     * @param expiresIn Segundos que durará la firma (ej: 3600 para 1 hora)
+     * @return JsonNode con la URL firmada
+     */
+    public String getSignedUrl(String bucket, String filePath, int expiresIn) {
+        var body = mapper.createObjectNode();
+        body.put("expiresIn", expiresIn);
+
+        // La API de Supabase Storage para firmas es POST /storage/v1/object/sign/{bucket}/{path}
+        JsonNode response = sendRequest("POST", "/storage/v1/object/sign/" + bucket + "/" + filePath, body.toString());
+        
+        if (response != null && response.has("signedURL")) {
+            // La respuesta viene como una ruta relativa, hay que concatenar la URL base si es necesario
+            // pero normalmente Supabase devuelve la URL completa o la ruta lista para usar.
+            return response.get("signedURL").asText();
+        }
+        return null;
+    }
+
     private JsonNode sendRequest(String method, String path, String body) {
         var builder = HttpRequest.newBuilder()
                 .uri(URI.create(supabaseUrl + path))

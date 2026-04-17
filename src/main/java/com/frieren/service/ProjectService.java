@@ -1,6 +1,7 @@
 package com.frieren.service;
 
 import com.frieren.entity.Project;
+import com.frieren.entity.ProjectTeam;
 import com.frieren.security.UserContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -99,6 +100,14 @@ public class ProjectService {
         project.updatedAt = now;
 
         project.persist();
+
+        // Añadir automáticamente al creador como el primer miembro del equipo
+        ProjectTeam creatorMember = new ProjectTeam();
+        creatorMember.projectId = uuid;
+        creatorMember.userId = userContext.getUserId();
+        creatorMember.joinedAt = now;
+        creatorMember.persist();
+
         return project;
     }
 
@@ -149,7 +158,8 @@ public class ProjectService {
 
     /** Archivar un proyecto existente.
      * <p>
-     * TODO: Necesitamos que esta función descargue el proyecto, lo comprima y lo suba a un S3 de AWS, o que lo guarde en local en lightsail al menos
+     * // TODO: En un futuro, esta función descargará el proyecto, lo comprimirá y lo subirá a un S3 de AWS.
+     * // Por ahora solo cambiamos el estado.
      *
      * @param projectId Identificador/Primary key UUID del proyecto que queremos archivar.
      * @return boolean true si se ha archivado correctamente, false en caso contrario.
@@ -176,6 +186,33 @@ public class ProjectService {
     }
 
     /**
+     * Desarchivar un proyecto existente.
+     * <p>
+     * Esta función limpia el campo archivedAt y asegura que el proyecto esté activo.
+     *
+     * @param projectId Identificador/Primary key UUID del proyecto que queremos desarchivar.
+     * @return boolean true si se ha desarchivado correctamente, false en caso contrario.
+     */
+    @Transactional
+    public boolean unarchive(UUID projectId) {
+        Project existing = Project.findById(projectId);
+        if (existing == null) {
+            throw new IllegalArgumentException("El proyecto no existe");
+        }
+
+        UUID orgId = userContext.getOrganizationId();
+        if (orgId == null || !orgId.equals(existing.organizationId)) {
+            throw new IllegalArgumentException("El usuario no tiene permisos para desarchivar este proyecto");
+        }
+
+        if (existing.archivedAt == null) return false;
+
+        existing.archivedAt = null;
+        existing.projectActive = true; // Lo ponemos en true por si acaso estaba en false
+        return true;
+    }
+
+    /**
      * Soft delete un proyecto existente.
      * @param projectId Identificador/Primary key UUID del proyecto que queremos eliminar.
      * @return boolean true si se ha eliminado correctamente, false en caso contrario.
@@ -197,5 +234,59 @@ public class ProjectService {
 
         existing.projectActive = false;
         return true;
+    }
+
+    /**
+     * Añade un usuario al equipo del proyecto.
+     * <p>
+     * Regla de negocio: Un usuario solo puede pertenecer a un proyecto a la vez.
+     *
+     * @param projectId El ID del proyecto.
+     * @param userId El ID del usuario.
+     * @return true si se añadió correctamente.
+     */
+    @Transactional
+    public boolean addMember(UUID projectId, UUID userId) {
+        // Validar que el proyecto exista y pertenezca a la misma organización que el usuario que lo añade
+        Project project = get(projectId);
+        if (project == null) {
+            throw new IllegalArgumentException("El proyecto no existe o no tienes acceso");
+        }
+
+        // 1. Validar que el usuario no esté YA en otro proyecto
+        if (ProjectTeam.count("userId", userId) > 0) {
+            throw new IllegalStateException("El usuario ya pertenece a un proyecto. Debe salir de su proyecto actual primero.");
+        }
+
+        // 2. Añadir al equipo
+        ProjectTeam member = new ProjectTeam();
+        member.projectId = projectId;
+        member.userId = userId;
+        member.joinedAt = OffsetDateTime.now();
+        member.persist();
+
+        return true;
+    }
+
+    /**
+     * Quita un usuario del equipo del proyecto.
+     *
+     * @param projectId El ID del proyecto.
+     * @param userId El ID del usuario.
+     * @return true si se eliminó correctamente.
+     */
+    @Transactional
+    public boolean removeMember(UUID projectId, UUID userId) {
+        return ProjectTeam.delete("projectId = ?1 AND userId = ?2", projectId, userId) > 0;
+    }
+
+    /**
+     * Obtiene la lista de IDs de usuarios en un proyecto.
+     *
+     * @param projectId El ID del proyecto.
+     * @return Lista de miembros del equipo.
+     */
+    public List<ProjectTeam> getMembers(UUID projectId) {
+        return ProjectTeam.list("projectId", projectId);
     }
 }
