@@ -21,24 +21,37 @@ public class UserContext {
         Map<String, Object> metadata = jwt.getClaim("user_metadata");
         if (metadata == null) return null;
 
-        Object raw = metadata.get("raw_user_meta_data");
-        if (!(raw instanceof Map<?, ?> rawMetadata)) return null;
+        // Buscar en user_metadata directo (donde updateUser lo pone)
+        Object orgId = metadata.get("organizationId");
 
-        Object orgId = rawMetadata.get("organizationId");
+        // Si no está, buscar en raw_user_meta_data (donde signUp lo pone)
+        if (orgId == null) {
+            Object raw = metadata.get("raw_user_meta_data");
+            if (raw instanceof Map<?, ?> rawMetadata) {
+                orgId = rawMetadata.get("organizationId");
+            }
+        }
+
         if (orgId == null) return null;
 
-        return UUID.fromString(orgId.toString().replace("\"", "")
-        );
+        return UUID.fromString(orgId.toString().replace("\"", ""));
     }
 
     public String role() {
         Map<String, Object> metadata = jwt.getClaim("user_metadata");
         if (metadata == null) return Roles.PROGRAMMER;
 
-        Object raw = metadata.get("raw_user_meta_data");
-        if (!(raw instanceof Map<?, ?> rawMetadata)) return Roles.PROGRAMMER;
+        // Buscar en user_metadata directo (donde updateUser lo pone)
+        Object role = metadata.get("role");
 
-        Object role = rawMetadata.get("role");
+        // Si no está, buscar en raw_user_meta_data (donde signUp lo pone)
+        if (role == null) {
+            Object raw = metadata.get("raw_user_meta_data");
+            if (raw instanceof Map<?, ?> rawMetadata) {
+                role = rawMetadata.get("role");
+            }
+        }
+
         return role != null ? role.toString().replace("\"", "") : Roles.PROGRAMMER;
     }
 

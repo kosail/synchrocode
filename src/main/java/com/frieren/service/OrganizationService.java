@@ -17,6 +17,7 @@ public class OrganizationService {
     @Inject
     UserContext userContext;
 
+
     /**
      * Obtiene todas las organizaciones/empresas/compañías.
      * @return Lista de todas las organizaciones registradas.
