@@ -69,6 +69,7 @@ public class TaskService {
     }
 
     public Task getTask(UUID taskId) {
+        if (taskId == null) return null;
         Task task = Task.findById(taskId);
         if (task == null) return null;
         
@@ -78,6 +79,7 @@ public class TaskService {
     }
 
     private void populateEvidence(Task task) {
+        if (task == null || task.id == null) return;
         task.evidence = TaskEvidence.list("taskId", task.id);
     }
 
@@ -117,6 +119,7 @@ public class TaskService {
 
     @Transactional
     public Task update(UUID taskId, Task update) {
+        if (taskId == null) throw new IllegalArgumentException("El ID de la tarea es obligatorio");
         Task existing = Task.findById(taskId);
         if (existing == null) throw new IllegalArgumentException("Esta tarea ya no existe");
 
@@ -156,6 +159,7 @@ public class TaskService {
 
     @Transactional
     public boolean delete(UUID taskId) {
+        if (taskId == null) throw new IllegalArgumentException("El ID de la tarea es obligatorio");
         Task existing = Task.findById(taskId);
         if (existing == null) throw new IllegalArgumentException("Esta tarea ya no existe");
 
@@ -174,6 +178,7 @@ public class TaskService {
 
     @Transactional
     public Task updateStatus(UUID taskId, Short statusId) {
+        if (taskId == null) throw new IllegalArgumentException("El ID de la tarea es obligatorio");
         Task existing = Task.findById(taskId);
         if (existing == null) throw new IllegalArgumentException("Esta tarea ya no existe");
 
@@ -211,6 +216,7 @@ public class TaskService {
 
     @Transactional
     public Task assignTask(UUID taskId, UUID assignedTo) {
+        if (taskId == null) throw new IllegalArgumentException("El ID de la tarea es obligatorio");
         Task existing = Task.findById(taskId);
         if (existing == null) throw new IllegalArgumentException("Esta tarea ya no existe");
 
@@ -232,6 +238,7 @@ public class TaskService {
 
     @Transactional
     public TaskEvidence addEvidence(UUID taskId, String fileName, String fileUrl, Long fileSizeBytes) {
+        if (taskId == null) throw new IllegalArgumentException("El ID de la tarea es obligatorio");
         Task existing = Task.findById(taskId);
         if (existing == null) throw new IllegalArgumentException("Esta tarea ya no existe");
 
@@ -256,6 +263,7 @@ public class TaskService {
     }
 
     public List<TaskEvidence> getEvidence(UUID taskId) {
+        if (taskId == null) throw new IllegalArgumentException("El ID de la tarea es obligatorio");
         Task existing = Task.findById(taskId);
         if (existing == null) throw new IllegalArgumentException("Esta tarea ya no existe");
         
@@ -264,25 +272,32 @@ public class TaskService {
     }
 
     public String getEvidenceDownloadUrl(UUID evidenceId) {
+        if (evidenceId == null) throw new IllegalArgumentException("ID de evidencia es obligatorio");
         TaskEvidence evidence = TaskEvidence.findById(evidenceId);
         if (evidence == null) throw new IllegalArgumentException("La evidencia no existe");
 
+        if (evidence.taskId == null) throw new IllegalStateException("Esta evidencia no tiene una tarea asociada");
         Task task = Task.findById(evidence.taskId);
+        if (task == null) throw new IllegalArgumentException("La tarea asociada a esta evidencia ya no existe");
+
         checkProjectAccess(task.projectId);
 
         // Supabase requiere el path relativo dentro del bucket
-        String path = evidence.fileName; 
-        
+        String path = evidence.fileName;
+
         return supabaseAdminService.getSignedUrl("task-evidence", path, 900);
     }
 
     @Transactional
     public boolean removeEvidence(UUID evidenceId) {
+        if (evidenceId == null) return false;
         TaskEvidence evidence = TaskEvidence.findById(evidenceId);
         if (evidence == null) return false;
-        
+
+        if (evidence.taskId == null) return TaskEvidence.deleteById(evidenceId);
+
         Task task = Task.findById(evidence.taskId);
-        if (task == null) return false;
+        if (task == null) return TaskEvidence.deleteById(evidenceId);
 
         UUID userId = userContext.getUserId();
 
@@ -293,7 +308,6 @@ public class TaskService {
 
         return TaskEvidence.deleteById(evidenceId);
     }
-
     private boolean isMemberOfProject(UUID projectId, UUID userId) {
         return ProjectTeam.count("projectId = ?1 AND userId = ?2", projectId, userId) > 0;
     }

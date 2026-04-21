@@ -86,17 +86,18 @@ public class SupabaseAdminService {
         var body = mapper.createObjectNode();
         body.put("expiresIn", expiresIn);
 
+        // Codificar el path para manejar espacios y caracteres especiales
+        String encodedPath = java.net.URLEncoder.encode(filePath, java.nio.charset.StandardCharsets.UTF_8)
+                .replace("+", "%20"); // URLEncoder usa + para espacios, pero Supabase prefiere %20
+
         // La API de Supabase Storage para firmas es POST /storage/v1/object/sign/{bucket}/{path}
-        JsonNode response = sendRequest("POST", "/storage/v1/object/sign/" + bucket + "/" + filePath, body.toString());
-        
+        JsonNode response = sendRequest("POST", "/storage/v1/object/sign/" + bucket + "/" + encodedPath, body.toString());
+
         if (response != null && response.has("signedURL")) {
-            // La respuesta viene como una ruta relativa, hay que concatenar la URL base si es necesario
-            // pero normalmente Supabase devuelve la URL completa o la ruta lista para usar.
             return response.get("signedURL").asText();
         }
         return null;
     }
-
     private JsonNode sendRequest(String method, String path, String body) {
         var builder = HttpRequest.newBuilder()
                 .uri(URI.create(supabaseUrl + path))
