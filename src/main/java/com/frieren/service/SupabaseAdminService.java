@@ -87,14 +87,25 @@ public class SupabaseAdminService {
         body.put("expiresIn", expiresIn);
 
         // Codificar el path para manejar espacios y caracteres especiales
-        String encodedPath = java.net.URLEncoder.encode(filePath, java.nio.charset.StandardCharsets.UTF_8)
-                .replace("+", "%20"); // URLEncoder usa + para espacios, pero Supabase prefiere %20
+        String[] segments = filePath.split("/");
+        for (int i = 0; i < segments.length; i++) {
+            segments[i] = java.net.URLEncoder.encode(segments[i], java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
+        }
+        String encodedPath = String.join("/", segments);
 
         // La API de Supabase Storage para firmas es POST /storage/v1/object/sign/{bucket}/{path}
         JsonNode response = sendRequest("POST", "/storage/v1/object/sign/" + bucket + "/" + encodedPath, body.toString());
 
         if (response != null && response.has("signedURL")) {
-            return response.get("signedURL").asText();
+            String url = response.get("signedURL").asText();
+            if (url.startsWith("/")) {
+                if (url.startsWith("/storage/v1")) {
+                    return supabaseUrl + url;
+                } else {
+                    return supabaseUrl + "/storage/v1" + url;
+                }
+            }
+            return url;
         }
         return null;
     }

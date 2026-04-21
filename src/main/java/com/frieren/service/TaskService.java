@@ -283,7 +283,7 @@ public class TaskService {
         checkProjectAccess(task.projectId);
 
         // Supabase requiere el path relativo dentro del bucket
-        String path = evidence.fileName;
+        String path = evidence.fileUrl;
 
         return supabaseAdminService.getSignedUrl("task-evidence", path, 900);
     }
