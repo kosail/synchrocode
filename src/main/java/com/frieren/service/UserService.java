@@ -81,11 +81,19 @@ public class UserService {
     }
 
     /**
-     * Permite a un usuario actualizar su propio nombre.
+     * Permite a un usuario actualizar su propio nombre o a un admin actualizar el de alguien de su organización.
      */
     public ObjectNode updateName(UUID userId, String newName) {
-        if (!userId.equals(userContext.getUserId())) {
-            throw new SecurityException("Solo puedes actualizar tu propio nombre");
+        boolean isSelf = userId.equals(userContext.getUserId());
+
+        if (!isSelf) {
+            requireAdmin();
+            UUID orgId = userContext.getOrganizationId();
+            JsonNode user = supabaseAdmin.getUser(userId.toString());
+            String userOrgId = extractOrgId(user);
+            if (orgId == null || !orgId.toString().equals(userOrgId)) {
+                throw new IllegalArgumentException("El usuario no pertenece a tu organización o no tienes permiso");
+            }
         }
 
         ObjectNode metadata = mapper.createObjectNode();

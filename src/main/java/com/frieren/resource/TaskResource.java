@@ -77,7 +77,7 @@ public class TaskResource {
 
     @GET
     @Path("/evidence/{evidenceId}/download")
-    public String getDownloadUrl(@PathParam("evidenceId") UUID evidenceId) {
-        return service.getEvidenceDownloadUrl(evidenceId);
+    public java.util.Map<String, String> getDownloadUrl(@PathParam("evidenceId") UUID evidenceId) {
+        return java.util.Map.of("url", service.getEvidenceDownloadUrl(evidenceId));
     }
 }
