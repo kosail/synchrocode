@@ -37,11 +37,11 @@ public class SessionParticipant extends PanacheEntityBase {
         this.id = id;
     }
 
-    public CollaborativeSession getSession() {
+    public CollaborativeSession getCollaborativeSession() {
         return session;
     }
 
-    public void setSession(CollaborativeSession session) {
+    public void setCollaborativeSession(CollaborativeSession session) {
         this.session = session;
     }
 
