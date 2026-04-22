@@ -28,7 +28,12 @@ public class CollaborativeSessionSocket {
     @Inject CollaborativeSessionService collaborativeSessionService;
 
     @OnOpen
-    public void onOpen(Session socket, @PathParam("sessionId") UUID sessionId) throws IOException {
+    public void onOpen(Session socket, @PathParam("sessionId") String sessionIdValue) throws IOException {
+        UUID sessionId = parseSessionId(socket, sessionIdValue);
+        if (sessionId == null) {
+            return;
+        }
+
         UUID userId = extractUserId(socket);
         if (userId == null || !collaborativeSessionService.isActiveParticipant(sessionId, userId)) {
             socket.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, "User is not an active participant"));
@@ -41,7 +46,12 @@ public class CollaborativeSessionSocket {
     }
 
     @OnMessage
-    public void onMessage(Session socket, @PathParam("sessionId") UUID sessionId, String message) throws IOException {
+    public void onMessage(Session socket, @PathParam("sessionId") String sessionIdValue, String message) throws IOException {
+        UUID sessionId = parseSessionId(socket, sessionIdValue);
+        if (sessionId == null) {
+            return;
+        }
+
         UUID userId = (UUID) socket.getUserProperties().get(USER_ID_PROPERTY);
         if (userId == null || !collaborativeSessionService.isActiveParticipant(sessionId, userId)) {
             socket.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, "User is not an active participant"));
@@ -69,7 +79,12 @@ public class CollaborativeSessionSocket {
     }
 
     @OnClose
-    public void onClose(Session socket, @PathParam("sessionId") UUID sessionId) {
+    public void onClose(Session socket, @PathParam("sessionId") String sessionIdValue) {
+        UUID sessionId = parseSessionIdOrNull(sessionIdValue);
+        if (sessionId == null) {
+            return;
+        }
+
         removeSocket(sessionId, socket);
         UUID userId = (UUID) socket.getUserProperties().get(USER_ID_PROPERTY);
         if (userId != null) {
@@ -78,7 +93,12 @@ public class CollaborativeSessionSocket {
     }
 
     @OnError
-    public void onError(Session socket, @PathParam("sessionId") UUID sessionId, Throwable error) {
+    public void onError(Session socket, @PathParam("sessionId") String sessionIdValue, Throwable error) {
+        UUID sessionId = parseSessionIdOrNull(sessionIdValue);
+        if (sessionId == null) {
+            return;
+        }
+
         removeSocket(sessionId, socket);
     }
 
@@ -121,6 +141,25 @@ public class CollaborativeSessionSocket {
 
         try {
             return UUID.fromString(userIdValue);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private UUID parseSessionId(Session socket, String sessionIdValue) throws IOException {
+        UUID sessionId = parseSessionIdOrNull(sessionIdValue);
+        if (sessionId == null) {
+            socket.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, "Invalid session id"));
+        }
+        return sessionId;
+    }
+
+    private UUID parseSessionIdOrNull(String sessionIdValue) {
+        if (sessionIdValue == null || sessionIdValue.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(sessionIdValue);
         } catch (IllegalArgumentException ignored) {
             return null;
         }
