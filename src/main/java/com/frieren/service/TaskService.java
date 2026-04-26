@@ -60,6 +60,25 @@ public class TaskService {
         }
     }
 
+    public List<Task> getAll() {
+        String roleName = userContext.role();
+        UUID userId = userContext.getUserId();
+        List<Task> tasks;
+
+        if (Roles.ADMIN.equalsIgnoreCase(roleName)) {
+            tasks = Task.listAll();
+        } else {
+            // Obtener IDs de proyectos donde el usuario es miembro
+            List<ProjectTeam> teams = ProjectTeam.list("userId", userId);
+            if (teams.isEmpty()) return List.of();
+            List<UUID> projectIds = teams.stream().map(pt -> pt.projectId).toList();
+            tasks = Task.find("projectId in ?1", projectIds).list();
+        }
+
+        tasks.forEach(this::populateEvidence);
+        return tasks;
+    }
+
     public List<Task> getTasksByProject(UUID projectId) {
         checkProjectAccess(projectId);
         List<Task> tasks = Task.list("projectId", projectId);

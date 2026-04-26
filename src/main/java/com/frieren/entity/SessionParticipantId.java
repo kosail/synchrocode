@@ -10,7 +10,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Embeddable
-public class SessionParticipantId extends PanacheEntityBase implements Serializable {
+public class SessionParticipantId implements Serializable {
     private static final long serialVersionUID = -5408588112585296767L;
     @NotNull
     @Column(name = "session_id", nullable = false)

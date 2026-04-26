@@ -16,6 +16,12 @@ public class TaskResource {
     @Inject TaskService service;
 
     @GET
+    @Path("/all")
+    public List<Task> getAll() {
+        return service.getAll();
+    }
+
+    @GET
     @Path("/project/{projectId}")
     public List<Task> getTasksByProject(@PathParam("projectId") UUID projectId) {
         return service.getTasksByProject(projectId);

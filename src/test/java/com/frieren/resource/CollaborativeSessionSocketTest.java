@@ -100,6 +100,60 @@ class CollaborativeSessionSocketTest {
     }
 
     @Test
+    void shouldBroadcastChatMessages() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        FakeService service = new FakeService();
+        service.activeParticipant = true;
+        service.snapshot = new CollaborativeSessionService.SessionSnapshot("", null);
+
+        CollaborativeSessionSocket socketEndpoint = new CollaborativeSessionSocket();
+        socketEndpoint.collaborativeSessionService = service;
+
+        TestSocket first = new TestSocket(userId);
+        TestSocket second = new TestSocket(userId);
+
+        socketEndpoint.onOpen(first.session(), sessionId.toString());
+        socketEndpoint.onOpen(second.session(), sessionId.toString());
+
+        socketEndpoint.onMessage(first.session(), sessionId.toString(), "{\"type\":\"TEXT\",\"content\":\"hola equipo\"}");
+
+        JsonNode chatPayload = MAPPER.readTree(second.sentMessages.getLast());
+        assertEquals("TEXT", chatPayload.path("type").asText());
+        assertEquals(userId.toString(), chatPayload.path("senderId").asText());
+        assertEquals("hola equipo", chatPayload.path("content").asText());
+        assertTrue(chatPayload.has("timestamp"));
+    }
+
+    @Test
+    void shouldDisconnectParticipantOnlyAfterLastSocketCloses() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        FakeService service = new FakeService();
+        service.activeParticipant = true;
+        service.snapshot = new CollaborativeSessionService.SessionSnapshot("", null);
+
+        CollaborativeSessionSocket socketEndpoint = new CollaborativeSessionSocket();
+        socketEndpoint.collaborativeSessionService = service;
+
+        TestSocket first = new TestSocket(userId);
+        TestSocket second = new TestSocket(userId);
+
+        socketEndpoint.onOpen(first.session(), sessionId.toString());
+        socketEndpoint.onOpen(second.session(), sessionId.toString());
+
+        socketEndpoint.onClose(first.session(), sessionId.toString());
+        assertEquals(0, service.disconnectCalls);
+
+        socketEndpoint.onClose(second.session(), sessionId.toString());
+        assertEquals(1, service.disconnectCalls);
+        assertEquals(sessionId, service.lastDisconnectSessionId);
+        assertEquals(userId, service.lastDisconnectUserId);
+    }
+
+    @Test
     void shouldCloseConnectionForInvalidSessionId() throws Exception {
         UUID userId = UUID.randomUUID();
 
@@ -118,6 +172,9 @@ class CollaborativeSessionSocketTest {
     private static class FakeService extends CollaborativeSessionService {
         private boolean activeParticipant;
         private SessionSnapshot snapshot = new SessionSnapshot("", null);
+        private int disconnectCalls;
+        private UUID lastDisconnectSessionId;
+        private UUID lastDisconnectUserId;
 
         @Override
         public boolean isActiveParticipant(UUID sessionId, UUID userId) {
@@ -151,7 +208,9 @@ class CollaborativeSessionSocketTest {
 
         @Override
         public void onSocketDisconnected(UUID sessionId, UUID userId) {
-            // no-op for tests
+            disconnectCalls++;
+            lastDisconnectSessionId = sessionId;
+            lastDisconnectUserId = userId;
         }
     }
 
