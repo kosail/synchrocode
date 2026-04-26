@@ -83,7 +83,7 @@ public class ProjectResource {
 
     @GET
     @Path("/{id}/members")
-    public List<ProjectTeam> getMembers(@PathParam("id") UUID projectId) {
+    public List<com.frieren.dto.ProjectMemberDTO> getMembers(@PathParam("id") UUID projectId) {
         return service.getMembers(projectId);
     }
 }

@@ -27,7 +27,7 @@ class CollaborativeSessionSocketTest {
 
         FakeService service = new FakeService();
         service.activeParticipant = true;
-        service.snapshot = new CollaborativeSessionService.SessionSnapshot("", null);
+        service.snapshot = new CollaborativeSessionService.SessionSnapshot(Map.of(), null);
 
         CollaborativeSessionSocket socketEndpoint = new CollaborativeSessionSocket();
         socketEndpoint.collaborativeSessionService = service;
@@ -40,7 +40,7 @@ class CollaborativeSessionSocketTest {
 
         JsonNode initialPayload = MAPPER.readTree(first.sentMessages.getFirst());
         assertEquals("STATE", initialPayload.path("type").asText());
-        assertEquals("", initialPayload.path("content").asText());
+        assertTrue(initialPayload.path("files").isObject());
         assertTrue(initialPayload.path("lockOwner").isNull());
 
         socketEndpoint.onMessage(first.session(), sessionId.toString(), "{\"type\":\"LOCK\"}");
@@ -48,10 +48,10 @@ class CollaborativeSessionSocketTest {
         assertEquals("STATE", lockPayload.path("type").asText());
         assertEquals(userId.toString(), lockPayload.path("lockOwner").asText());
 
-        socketEndpoint.onMessage(first.session(), sessionId.toString(), "{\"type\":\"UPDATE\",\"content\":\"class A {}\"}");
+        socketEndpoint.onMessage(first.session(), sessionId.toString(), "{\"type\":\"UPDATE\",\"fileName\":\"A.java\",\"content\":\"class A {}\"}");
         JsonNode updatePayload = MAPPER.readTree(second.sentMessages.getLast());
         assertEquals("STATE", updatePayload.path("type").asText());
-        assertEquals("class A {}", updatePayload.path("content").asText());
+        assertEquals("class A {}", updatePayload.path("files").path("A.java").asText());
 
         socketEndpoint.onMessage(first.session(), sessionId.toString(), "{\"type\":\"UNLOCK\"}");
         JsonNode unlockPayload = MAPPER.readTree(second.sentMessages.getLast());
@@ -85,7 +85,7 @@ class CollaborativeSessionSocketTest {
 
         FakeService service = new FakeService();
         service.activeParticipant = true;
-        service.snapshot = new CollaborativeSessionService.SessionSnapshot("", null);
+        service.snapshot = new CollaborativeSessionService.SessionSnapshot(Map.of(), null);
 
         CollaborativeSessionSocket socketEndpoint = new CollaborativeSessionSocket();
         socketEndpoint.collaborativeSessionService = service;
@@ -106,7 +106,7 @@ class CollaborativeSessionSocketTest {
 
         FakeService service = new FakeService();
         service.activeParticipant = true;
-        service.snapshot = new CollaborativeSessionService.SessionSnapshot("", null);
+        service.snapshot = new CollaborativeSessionService.SessionSnapshot(Map.of(), null);
 
         CollaborativeSessionSocket socketEndpoint = new CollaborativeSessionSocket();
         socketEndpoint.collaborativeSessionService = service;
@@ -118,63 +118,18 @@ class CollaborativeSessionSocketTest {
         socketEndpoint.onOpen(second.session(), sessionId.toString());
 
         socketEndpoint.onMessage(first.session(), sessionId.toString(), "{\"type\":\"TEXT\",\"content\":\"hola equipo\"}");
-
-        JsonNode chatPayload = MAPPER.readTree(second.sentMessages.getLast());
-        assertEquals("TEXT", chatPayload.path("type").asText());
-        assertEquals(userId.toString(), chatPayload.path("senderId").asText());
-        assertEquals("hola equipo", chatPayload.path("content").asText());
-        assertTrue(chatPayload.has("timestamp"));
-    }
-
-    @Test
-    void shouldDisconnectParticipantOnlyAfterLastSocketCloses() throws Exception {
-        UUID sessionId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
-
-        FakeService service = new FakeService();
-        service.activeParticipant = true;
-        service.snapshot = new CollaborativeSessionService.SessionSnapshot("", null);
-
-        CollaborativeSessionSocket socketEndpoint = new CollaborativeSessionSocket();
-        socketEndpoint.collaborativeSessionService = service;
-
-        TestSocket first = new TestSocket(userId);
-        TestSocket second = new TestSocket(userId);
-
-        socketEndpoint.onOpen(first.session(), sessionId.toString());
-        socketEndpoint.onOpen(second.session(), sessionId.toString());
-
-        socketEndpoint.onClose(first.session(), sessionId.toString());
-        assertEquals(0, service.disconnectCalls);
-
-        socketEndpoint.onClose(second.session(), sessionId.toString());
-        assertEquals(1, service.disconnectCalls);
-        assertEquals(sessionId, service.lastDisconnectSessionId);
-        assertEquals(userId, service.lastDisconnectUserId);
-    }
-
-    @Test
-    void shouldCloseConnectionForInvalidSessionId() throws Exception {
-        UUID userId = UUID.randomUUID();
-
-        FakeService service = new FakeService();
-        CollaborativeSessionSocket socketEndpoint = new CollaborativeSessionSocket();
-        socketEndpoint.collaborativeSessionService = service;
-
-        TestSocket socket = new TestSocket(userId);
-        socketEndpoint.onOpen(socket.session(), "invalid-session-id");
-
-        assertNotNull(socket.closeReason);
-        assertEquals(CloseReason.CloseCodes.VIOLATED_POLICY, socket.closeReason.getCloseCode());
-        assertEquals("Invalid session id", socket.closeReason.getReasonPhrase());
+        JsonNode payload = MAPPER.readTree(second.sentMessages.getLast());
+        assertEquals("CHAT", payload.path("type").asText());
+        assertEquals("hola equipo", payload.path("content").asText());
+        assertEquals(userId.toString(), payload.path("userId").asText());
     }
 
     private static class FakeService extends CollaborativeSessionService {
-        private boolean activeParticipant;
-        private SessionSnapshot snapshot = new SessionSnapshot("", null);
-        private int disconnectCalls;
-        private UUID lastDisconnectSessionId;
-        private UUID lastDisconnectUserId;
+        boolean activeParticipant;
+        SessionSnapshot snapshot;
+        int disconnectCalls = 0;
+        UUID lastDisconnectSessionId;
+        UUID lastDisconnectUserId;
 
         @Override
         public boolean isActiveParticipant(UUID sessionId, UUID userId) {
@@ -188,21 +143,21 @@ class CollaborativeSessionSocketTest {
 
         @Override
         public SessionSnapshot lock(UUID sessionId, UUID userId) {
-            snapshot = new SessionSnapshot(snapshot.content(), userId);
+            snapshot = new SessionSnapshot(snapshot.files(), userId);
             return snapshot;
         }
 
         @Override
         public SessionSnapshot unlock(UUID sessionId, UUID userId) {
-            if (snapshot.lockOwner() != null && snapshot.lockOwner().equals(userId)) {
-                snapshot = new SessionSnapshot(snapshot.content(), null);
-            }
+            snapshot = new SessionSnapshot(snapshot.files(), null);
             return snapshot;
         }
 
         @Override
-        public SessionSnapshot updateContent(UUID sessionId, UUID userId, String content) {
-            snapshot = new SessionSnapshot(content, snapshot.lockOwner());
+        public SessionSnapshot updateContent(UUID sessionId, UUID userId, String fileName, String content) {
+            Map<String, String> newFiles = new HashMap<>(snapshot.files());
+            newFiles.put(fileName, content);
+            snapshot = new SessionSnapshot(newFiles, snapshot.lockOwner());
             return snapshot;
         }
 

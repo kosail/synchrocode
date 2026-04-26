@@ -280,13 +280,25 @@ public class ProjectService {
         return ProjectTeam.delete("projectId = ?1 AND userId = ?2", projectId, userId) > 0;
     }
 
+    @Inject
+    com.frieren.service.UserService userService;
+
     /**
-     * Obtiene la lista de IDs de usuarios en un proyecto.
+     * Obtiene la lista de miembros de un proyecto con sus perfiles.
      *
      * @param projectId El ID del proyecto.
-     * @return Lista de miembros del equipo.
+     * @return Lista de miembros del equipo con información de perfil.
      */
-    public List<ProjectTeam> getMembers(UUID projectId) {
-        return ProjectTeam.list("projectId", projectId);
+    public List<com.frieren.dto.ProjectMemberDTO> getMembers(UUID projectId) {
+        List<ProjectTeam> team = ProjectTeam.list("projectId", projectId);
+        return team.stream().map(member -> {
+            String name = userService.getNameUnsafe(member.userId);
+            return new com.frieren.dto.ProjectMemberDTO(
+                member.userId,
+                name != null ? name : "Miembro del equipo",
+                null,
+                "Miembro"
+            );
+        }).toList();
     }
 }
