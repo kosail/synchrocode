@@ -179,10 +179,15 @@ public class CollaborativeSessionSocket {
         if (userId == null) {
             userId = (UUID) socket.getUserProperties().get(USER_ID_PROPERTY);
         }
-        
+
         if (userId != null) {
             if (!hasSocketForUser(sessionId, userId)) {
-                // collaborativeSessionService.onSocketDisconnected(sessionId, userId);
+                CollaborativeSessionService.SessionSnapshot snapshot = collaborativeSessionService.onSocketDisconnected(sessionId, userId);
+                try {
+                    broadcastState(sessionId, snapshot);
+                } catch (Exception e) {
+                    System.err.println("Failed to broadcast state after socket disconnection: " + e.getMessage());
+                }
             }
         }
     }
