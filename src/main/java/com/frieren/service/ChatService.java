@@ -91,7 +91,7 @@ public class ChatService {
         OffsetDateTime now = OffsetDateTime.now();
 
         ChatMessage message = new ChatMessage();
-        message.setId(UUID.randomUUID());
+        // REMOVED: message.setId(UUID.randomUUID()); <-- Hibernate handles this
         message.setChannel(channel);
         message.setUserId(userId != null ? userId : userContext.getUserId());
         message.setBody(body);

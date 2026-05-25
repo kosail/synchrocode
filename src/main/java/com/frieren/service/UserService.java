@@ -146,6 +146,19 @@ public class UserService {
         supabaseAdmin.deleteUser(userId.toString());
     }
 
+    /**
+     * Obtiene solo el nombre del usuario sin validaciones de seguridad.
+     * Uso interno para el sistema.
+     */
+    public String getNameUnsafe(UUID userId) {
+        try {
+            JsonNode user = supabaseAdmin.getUser(userId.toString());
+            return extractName(user);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private void requireAdmin() {
         if (!Roles.ADMIN.equals(userContext.role())) {
             throw new SecurityException("Solo los administradores pueden gestionar usuarios");

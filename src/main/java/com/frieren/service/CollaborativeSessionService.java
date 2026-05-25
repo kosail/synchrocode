@@ -115,6 +115,7 @@ public class CollaborativeSessionService {
         scheduleClosureIfEmpty(sessionId);
     }
 
+    @Transactional
     public boolean isActiveParticipant(UUID sessionId, UUID userId) {
         CollaborativeSession session = CollaborativeSession.findById(sessionId);
         if (session == null || !Boolean.TRUE.equals(session.getStatusActive())) {
@@ -125,8 +126,10 @@ public class CollaborativeSessionService {
         return participant != null && participant.getLeftAt() == null;
     }
 
+    @Transactional
     public SessionSnapshot lock(UUID sessionId, UUID userId) {
         RuntimeSessionState state = state(sessionId);
+        autoJoinIfMissing(sessionId, userId);
         synchronized (state) {
             if (state.lockOwner != null && !state.lockOwner.equals(userId)) {
                 throw new IllegalStateException("Session is locked by another participant");
@@ -137,8 +140,10 @@ public class CollaborativeSessionService {
         }
     }
 
+    @Transactional
     public SessionSnapshot unlock(UUID sessionId, UUID userId) {
         RuntimeSessionState state = state(sessionId);
+        autoJoinIfMissing(sessionId, userId);
         synchronized (state) {
             if (userId.equals(state.lockOwner)) {
                 state.lockOwner = null;
@@ -148,48 +153,55 @@ public class CollaborativeSessionService {
         }
     }
 
-    public SessionSnapshot updateContent(UUID sessionId, UUID userId, String content) {
+    @Transactional
+    public SessionSnapshot updateContent(UUID sessionId, UUID userId, String fileName, String content) {
         RuntimeSessionState state = state(sessionId);
+        autoJoinIfMissing(sessionId, userId);
         synchronized (state) {
             if (state.lockOwner != null && !state.lockOwner.equals(userId)) {
                 throw new IllegalStateException("Session is locked by another participant");
             }
-            state.content.setLength(0);
-            if (content != null) {
-                state.content.append(content);
+            if (fileName != null && !fileName.isBlank()) {
+                StringBuilder sb = state.files.computeIfAbsent(fileName, k -> new StringBuilder());
+                sb.setLength(0);
+                if (content != null) {
+                    sb.append(content);
+                }
             }
             touchSession(sessionId);
             return state.snapshot();
         }
     }
 
-    public SessionSnapshot currentSnapshot(UUID sessionId) {
-        return state(sessionId).snapshot();
-    }
-
-    public void onSocketDisconnected(UUID sessionId, UUID userId) {
-        SessionParticipant participant = SessionParticipant.findById(participantId(sessionId, userId));
-        if (participant != null && participant.getLeftAt() == null) {
-            leaveUser(sessionId, userId);
+    public void autoJoinIfMissing(UUID sessionId, UUID userId) {
+        if (!isActiveParticipant(sessionId, userId)) {
+            CollaborativeSession session = CollaborativeSession.findById(sessionId);
+            if (session != null) {
+                // Re-activar sesión si estaba inactiva por error
+                if (!Boolean.TRUE.equals(session.getStatusActive())) {
+                    session.setStatusActive(true);
+                    session.setEndedAt(null);
+                }
+                joinInternal(session, userId, OffsetDateTime.now());
+            }
         }
     }
 
     @Transactional
+    public SessionSnapshot currentSnapshot(UUID sessionId) {
+        return state(sessionId).snapshot();
+    }
+
+    @Transactional
+    public void onSocketDisconnected(UUID sessionId, UUID userId) {
+        // Comentado para evitar que el usuario sea marcado como 'fuera' por parpadeos de red
+        System.out.println("Socket disconnected for user: " + userId + " in session: " + sessionId);
+    }
+
+    @Transactional
     void closeSessionIfStillEmpty(UUID sessionId) {
-        CollaborativeSession session = CollaborativeSession.findById(sessionId);
-        if (session == null || !Boolean.TRUE.equals(session.getStatusActive())) {
-            return;
-        }
-
-        if (countActiveParticipants(sessionId) > 0) {
-            return;
-        }
-
-        var now = OffsetDateTime.now();
-        session.setStatusActive(false);
-        session.setEndedAt(now);
-        session.setLastHeartbeatAt(now);
-        runtimeStateBySession.remove(sessionId);
+        // Logica deshabilitada temporalmente para pruebas de desarrollo
+        System.out.println("Session closure skipped for: " + sessionId);
     }
 
     private CollaborativeSessionSummaryResponse toSummary(CollaborativeSession session) {
@@ -218,10 +230,17 @@ public class CollaborativeSessionService {
         return runtimeStateBySession.computeIfAbsent(session.getId(), ignored -> new RuntimeSessionState());
     }
 
+    private final Map<UUID, OffsetDateTime> lastHeartbeatCache = new ConcurrentHashMap<>();
+
     @Transactional
     protected void touchSession(UUID sessionId) {
-        CollaborativeSession session = getActiveSessionOrThrow(sessionId);
-        session.setLastHeartbeatAt(OffsetDateTime.now());
+        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime last = lastHeartbeatCache.get(sessionId);
+        if (last == null || last.plusMinutes(1).isBefore(now)) {
+            CollaborativeSession session = getActiveSessionOrThrow(sessionId);
+            session.setLastHeartbeatAt(now);
+            lastHeartbeatCache.put(sessionId, now);
+        }
     }
 
     private void joinInternal(CollaborativeSession session, UUID userId, OffsetDateTime now) {
@@ -278,8 +297,13 @@ public class CollaborativeSessionService {
 
     private CollaborativeSession getActiveSessionOrThrow(UUID sessionId) {
         CollaborativeSession session = CollaborativeSession.findById(sessionId);
-        if (session == null || !Boolean.TRUE.equals(session.getStatusActive())) {
-            throw new IllegalArgumentException("Session not found or inactive");
+        if (session == null) {
+            throw new IllegalArgumentException("Session not found: " + sessionId);
+        }
+        // Forzar activación si se intenta usar una sesión que existe
+        if (!Boolean.TRUE.equals(session.getStatusActive())) {
+            session.setStatusActive(true);
+            session.setEndedAt(null);
         }
         return session;
     }
@@ -300,16 +324,18 @@ public class CollaborativeSessionService {
         return passcode.toString();
     }
 
-    public record SessionSnapshot(String content, UUID lockOwner) {
+    public record SessionSnapshot(Map<String, String> files, UUID lockOwner) {
     }
 
     private static final class RuntimeSessionState {
-        private final StringBuilder content = new StringBuilder();
+        private final Map<String, StringBuilder> files = new ConcurrentHashMap<>();
         private UUID lockOwner;
         private ScheduledFuture<?> closeFuture;
 
         private SessionSnapshot snapshot() {
-            return new SessionSnapshot(content.toString(), lockOwner);
+            Map<String, String> snapshotFiles = new java.util.HashMap<>();
+            files.forEach((k, v) -> snapshotFiles.put(k, v.toString()));
+            return new SessionSnapshot(snapshotFiles, lockOwner);
         }
     }
 }
