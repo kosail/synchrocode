@@ -162,10 +162,11 @@ class CollaborativeSessionSocketTest {
         }
 
         @Override
-        public void onSocketDisconnected(UUID sessionId, UUID userId) {
+        public SessionSnapshot onSocketDisconnected(UUID sessionId, UUID userId) {
             disconnectCalls++;
             lastDisconnectSessionId = sessionId;
             lastDisconnectUserId = userId;
+            return snapshot;
         }
     }
 
