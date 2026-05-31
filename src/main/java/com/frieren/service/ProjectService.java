@@ -2,12 +2,19 @@ package com.frieren.service;
 
 import com.frieren.entity.Project;
 import com.frieren.entity.ProjectTeam;
+import com.frieren.entity.UserProfile;
+import com.frieren.entity.CommitLink;
+import com.frieren.entity.PullRequestLink;
+import com.frieren.dto.GitHubStatsResponse;
+import com.frieren.dto.GitHubCollaboratorResponse;
 import com.frieren.security.UserContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -17,6 +24,12 @@ import static java.util.UUID.randomUUID;
 public class ProjectService {
     @Inject
     UserContext userContext;
+
+    @Inject
+    GitHubService gitHubService;
+
+    @Inject
+    NotificationService notificationService;
 
     // TODO: Añadir un filtrado de proyectos por la organización a la que pertenece el usuario,
     // pero eso luego ya que cree la tabla de Organization
@@ -101,12 +114,37 @@ public class ProjectService {
 
         project.persist();
 
+        List<String> githubUsernames = new ArrayList<>();
+        if (project.githubUsernames != null) {
+            githubUsernames.addAll(project.githubUsernames);
+        }
+
+        String creatorGithubUsername = userService.getGithubUsernameUnsafe(userContext.getUserId());
+        if (creatorGithubUsername != null && !creatorGithubUsername.isBlank()) {
+            githubUsernames.add(creatorGithubUsername);
+        }
+
+        project.repoUrl = gitHubService.crearRepoYAgregarMiembros(
+                project.name,
+                project.description,
+                new ArrayList<>(new LinkedHashSet<>(githubUsernames))
+        );
+
         // Añadir automáticamente al creador como el primer miembro del equipo
         ProjectTeam creatorMember = new ProjectTeam();
         creatorMember.projectId = uuid;
         creatorMember.userId = userContext.getUserId();
         creatorMember.joinedAt = now;
         creatorMember.persist();
+
+        notificationService.notifyUser(
+                userContext.getUserId(),
+                NotificationService.PR_MERGED,
+                "Repositorio GitHub conectado",
+                "Se creó el repositorio privado para " + project.name + ".",
+                "project",
+                project.id
+        );
 
         return project;
     }
@@ -247,6 +285,19 @@ public class ProjectService {
      */
     @Transactional
     public boolean addMember(UUID projectId, UUID userId) {
+        return addMember(projectId, userId, null);
+    }
+
+    /**
+     * Añade un usuario al equipo del proyecto y opcionalmente lo agrega como colaborador de GitHub.
+     *
+     * @param projectId El ID del proyecto.
+     * @param userId El ID del usuario.
+     * @param githubUsername Username opcional de GitHub.
+     * @return true si se añadió correctamente.
+     */
+    @Transactional
+    public boolean addMember(UUID projectId, UUID userId, String githubUsername) {
         // Validar que el proyecto exista y pertenezca a la misma organización que el usuario que lo añade
         Project project = get(projectId);
         if (project == null) {
@@ -265,7 +316,175 @@ public class ProjectService {
         member.joinedAt = OffsetDateTime.now();
         member.persist();
 
+        if (githubUsername != null && !githubUsername.isBlank()) {
+            String normalizedUsername = githubUsername.trim();
+            UserProfile profile = UserProfile.findById(userId);
+            if (profile != null) {
+                profile.setGithubUsername(normalizedUsername);
+                profile.setUpdatedAt(java.time.Instant.now());
+            }
+            gitHubService.agregarColaborador(project.repoUrl, normalizedUsername);
+        }
+
+        notificationService.notifyUser(
+                userId,
+                NotificationService.ROLE_CHANGED,
+                "Te agregaron a un proyecto",
+                "Ahora formas parte de " + project.name + ".",
+                "project",
+                project.id
+        );
+
         return true;
+    }
+
+    /**
+     * Crea el repositorio de GitHub para un proyecto existente que aún no tenga repo vinculado.
+     *
+     * @param projectId El ID del proyecto.
+     * @return El proyecto actualizado con repoUrl.
+     */
+    @Transactional
+    public Project createGitHubRepository(UUID projectId) {
+        Project project = get(projectId);
+        if (project == null) {
+            throw new IllegalArgumentException("El proyecto no existe o no tienes acceso");
+        }
+
+        if (project.repoUrl != null && !project.repoUrl.isBlank()) {
+            return project;
+        }
+
+        project.repoUrl = gitHubService.crearRepoYAgregarMiembros(
+                project.name,
+                project.description,
+                creatorGithubUsernames(project.createdBy)
+        );
+        project.updatedAt = OffsetDateTime.now();
+
+        notificationService.notifyProjectTeam(
+                project.id,
+                NotificationService.PR_MERGED,
+                "Repositorio GitHub conectado",
+                "Se creó el repositorio privado para " + project.name + ".",
+                "project",
+                project.id,
+                null
+        );
+
+        return project;
+    }
+
+    private List<String> creatorGithubUsernames(UUID creatorId) {
+        if (creatorId == null) return List.of();
+
+        String username = userService.getGithubUsernameUnsafe(creatorId);
+        if (username == null || username.isBlank()) return List.of();
+
+        return List.of(username);
+    }
+
+    /**
+     * Agrega un colaborador de GitHub al repositorio de un proyecto existente.
+     *
+     * @param projectId El ID del proyecto.
+     * @param githubUsername Username de GitHub.
+     */
+    @Transactional
+    public void addGitHubCollaborator(UUID projectId, String githubUsername) {
+        Project project = get(projectId);
+        if (project == null) {
+            throw new IllegalArgumentException("El proyecto no existe o no tienes acceso");
+        }
+
+        if (project.repoUrl == null || project.repoUrl.isBlank()) {
+            throw new IllegalStateException("El proyecto todavía no tiene repositorio de GitHub");
+        }
+
+        if (githubUsername == null || githubUsername.isBlank()) {
+            throw new IllegalArgumentException("El GitHub username es obligatorio");
+        }
+
+        String normalizedUsername = githubUsername.trim();
+        gitHubService.agregarColaborador(project.repoUrl, normalizedUsername);
+        notificationService.notifyProjectTeam(
+                project.id,
+                NotificationService.PR_MERGED,
+                "Colaborador GitHub agregado",
+                "@" + normalizedUsername + " recibió acceso al repositorio de " + project.name + ".",
+                "project",
+                project.id,
+                null
+        );
+    }
+
+    public GitHubStatsResponse getGitHubStats(UUID projectId) {
+        Project project = get(projectId);
+        if (project == null) {
+            throw new IllegalArgumentException("El proyecto no existe o no tienes acceso");
+        }
+
+        long linkedCommits = CommitLink.count("task.projectId", projectId);
+        long linkedPullRequests = PullRequestLink.count("task.projectId", projectId);
+        return gitHubService.getRepositoryStats(project.repoUrl, linkedCommits + linkedPullRequests);
+    }
+
+    public List<GitHubCollaboratorResponse> getGitHubCollaborators(UUID projectId) {
+        Project project = get(projectId);
+        if (project == null) {
+            throw new IllegalArgumentException("El proyecto no existe o no tienes acceso");
+        }
+
+        return gitHubService.getRepositoryCollaborators(project.repoUrl);
+    }
+
+    /**
+     * Actualiza el GitHub username de un miembro y lo invita al repositorio si existe.
+     *
+     * @param projectId El ID del proyecto.
+     * @param userId El ID del miembro.
+     * @param githubUsername Username de GitHub.
+     * @return Información actualizada del miembro.
+     */
+    @Transactional
+    public com.frieren.dto.ProjectMemberDTO updateMemberGitHubUsername(UUID projectId, UUID userId, String githubUsername) {
+        Project project = get(projectId);
+        if (project == null) {
+            throw new IllegalArgumentException("El proyecto no existe o no tienes acceso");
+        }
+
+        if (ProjectTeam.count("projectId = ?1 AND userId = ?2", projectId, userId) == 0) {
+            throw new IllegalArgumentException("El usuario no pertenece al equipo del proyecto");
+        }
+
+        if (githubUsername == null || githubUsername.isBlank()) {
+            throw new IllegalArgumentException("El GitHub username es obligatorio");
+        }
+
+        String normalizedUsername = githubUsername.trim();
+        userService.setGithubUsernameUnsafe(userId, normalizedUsername);
+
+        if (project.repoUrl != null && !project.repoUrl.isBlank()) {
+            gitHubService.agregarColaborador(project.repoUrl, normalizedUsername);
+        }
+
+        notificationService.notifyUser(
+                userId,
+                NotificationService.PR_MERGED,
+                "GitHub vinculado al proyecto",
+                "Tu usuario @" + normalizedUsername + " quedó vinculado al repositorio de " + project.name + ".",
+                "project",
+                project.id
+        );
+
+        String name = userService.getNameUnsafe(userId);
+        return new com.frieren.dto.ProjectMemberDTO(
+                userId,
+                name != null ? name : "Miembro del equipo",
+                null,
+                "Miembro",
+                normalizedUsername
+        );
     }
 
     /**
@@ -297,8 +516,17 @@ public class ProjectService {
                 member.userId,
                 name != null ? name : "Miembro del equipo",
                 null,
-                "Miembro"
+                "Miembro",
+                profileGithubUsername(member.userId)
             );
         }).toList();
+    }
+
+    private String profileGithubUsername(UUID userId) {
+        UserProfile profile = UserProfile.findById(userId);
+        if (profile != null && profile.getGithubUsername() != null && !profile.getGithubUsername().isBlank()) {
+            return profile.getGithubUsername();
+        }
+        return userService.getGithubUsernameUnsafe(userId);
     }
 }

@@ -26,6 +26,9 @@ public class UserProfile extends PanacheEntityBase {
     @Column(name = "avatar_url", length = Integer.MAX_VALUE)
     private String avatarUrl;
 
+    @Column(name = "github_username", length = Integer.MAX_VALUE)
+    private String githubUsername;
+
     @NotNull
     @ColumnDefault("'{}'")
     @JdbcTypeCode(SqlTypes.JSON)
@@ -70,6 +73,14 @@ public class UserProfile extends PanacheEntityBase {
 
     public void setAvatarUrl(String avatarUrl) {
         this.avatarUrl = avatarUrl;
+    }
+
+    public String getGithubUsername() {
+        return githubUsername;
+    }
+
+    public void setGithubUsername(String githubUsername) {
+        this.githubUsername = githubUsername;
     }
 
     public Map<String, Object> getNotificationPrefs() {

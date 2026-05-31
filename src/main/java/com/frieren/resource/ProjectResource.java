@@ -16,6 +16,9 @@ import java.util.UUID;
 public class ProjectResource {
     @Inject ProjectService service;
 
+    public record GitHubCollaboratorRequest(String githubUsername) {}
+    public record MemberGitHubRequest(String githubUsername) {}
+
     @GET
     @Path("/all")
     public List<Project> getAll() {
@@ -45,6 +48,33 @@ public class ProjectResource {
         return service.create(project);
     }
 
+    @POST
+    @Path("/{id}/github/repository")
+    public Project createGitHubRepository(@PathParam("id") UUID projectId) {
+        return service.createGitHubRepository(projectId);
+    }
+
+    @POST
+    @Path("/{id}/github/collaborators")
+    public void addGitHubCollaborator(
+            @PathParam("id") UUID projectId,
+            GitHubCollaboratorRequest request
+    ) {
+        service.addGitHubCollaborator(projectId, request.githubUsername());
+    }
+
+    @GET
+    @Path("/{id}/github/stats")
+    public com.frieren.dto.GitHubStatsResponse getGitHubStats(@PathParam("id") UUID projectId) {
+        return service.getGitHubStats(projectId);
+    }
+
+    @GET
+    @Path("/{id}/github/collaborators")
+    public List<com.frieren.dto.GitHubCollaboratorResponse> getGitHubCollaborators(@PathParam("id") UUID projectId) {
+        return service.getGitHubCollaborators(projectId);
+    }
+
     @PUT
     @Path("/{id}")
     public Project update(@PathParam("id") UUID projectId, Project updated) {
@@ -71,8 +101,22 @@ public class ProjectResource {
 
     @POST
     @Path("/{id}/members/{userId}")
-    public boolean addMember(@PathParam("id") UUID projectId, @PathParam("userId") UUID userId) {
-        return service.addMember(projectId, userId);
+    public boolean addMember(
+            @PathParam("id") UUID projectId,
+            @PathParam("userId") UUID userId,
+            @QueryParam("githubUsername") String githubUsername
+    ) {
+        return service.addMember(projectId, userId, githubUsername);
+    }
+
+    @PUT
+    @Path("/{id}/members/{userId}/github")
+    public com.frieren.dto.ProjectMemberDTO updateMemberGitHubUsername(
+            @PathParam("id") UUID projectId,
+            @PathParam("userId") UUID userId,
+            MemberGitHubRequest request
+    ) {
+        return service.updateMemberGitHubUsername(projectId, userId, request.githubUsername());
     }
 
     @DELETE

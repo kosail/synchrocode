@@ -22,6 +22,7 @@ public class TaskService {
     @Inject ProjectService projectService;
     @Inject RoleRepository roleRepository;
     @Inject SupabaseAdminService supabaseAdminService;
+    @Inject NotificationService notificationService;
     private static final java.util.logging.Logger LOG = java.util.logging.Logger.getLogger(TaskService.class.getName());
 
     /**
@@ -133,6 +134,18 @@ public class TaskService {
         task.updatedAt = now;
 
         task.persist();
+
+        if (task.assignedTo != null) {
+            notificationService.notifyUser(
+                    task.assignedTo,
+                    NotificationService.TASK_ASSIGNED,
+                    "Tarea asignada",
+                    "Se te asignó \"" + task.title + "\".",
+                    "task",
+                    task.id
+            );
+        }
+
         return task;
     }
 
@@ -162,6 +175,7 @@ public class TaskService {
         if (update.description != null) existing.description = update.description;
         if (update.priorityId != null) existing.priorityId = update.priorityId;
         if (update.dueDate != null) existing.dueDate = update.dueDate;
+        Short previousStatusId = existing.statusId;
         if (update.statusId != null) existing.statusId = update.statusId;
         
         if (update.assignedTo != null) {
@@ -172,6 +186,27 @@ public class TaskService {
         }
 
         existing.updatedAt = OffsetDateTime.now();
+        if (update.assignedTo != null) {
+            notificationService.notifyUser(
+                    existing.assignedTo,
+                    NotificationService.TASK_ASSIGNED,
+                    "Tarea asignada",
+                    "Se te asignó \"" + existing.title + "\".",
+                    "task",
+                    existing.id
+            );
+        }
+        if (update.statusId != null && !update.statusId.equals(previousStatusId)) {
+            notificationService.notifyProjectTeam(
+                    existing.projectId,
+                    NotificationService.TASK_STATUS_UPDATED,
+                    "Estado de tarea actualizado",
+                    "\"" + existing.title + "\" cambió de estado.",
+                    "task",
+                    existing.id,
+                    userContext.getUserId()
+            );
+        }
         populateEvidence(existing);
         return existing;
     }
@@ -230,6 +265,15 @@ public class TaskService {
         }
 
         populateEvidence(existing);
+        notificationService.notifyProjectTeam(
+                existing.projectId,
+                NotificationService.TASK_STATUS_UPDATED,
+                "Estado de tarea actualizado",
+                "\"" + existing.title + "\" cambió de estado.",
+                "task",
+                existing.id,
+                userContext.getUserId()
+        );
         return existing;
     }
 
@@ -251,6 +295,17 @@ public class TaskService {
 
         existing.assignedTo = assignedTo;
         existing.updatedAt = OffsetDateTime.now();
+
+        if (assignedTo != null) {
+            notificationService.notifyUser(
+                    assignedTo,
+                    NotificationService.TASK_ASSIGNED,
+                    "Tarea asignada",
+                    "Se te asignó \"" + existing.title + "\".",
+                    "task",
+                    existing.id
+            );
+        }
 
         return existing;
     }

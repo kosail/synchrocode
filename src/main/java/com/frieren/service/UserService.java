@@ -4,11 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.frieren.entity.UserProfile;
 import com.frieren.security.UserContext;
 import com.frieren.security.models.Roles;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 
+import java.time.Instant;
 import java.util.UUID;
 
 @ApplicationScoped
@@ -159,6 +162,62 @@ public class UserService {
         }
     }
 
+    /**
+     * Obtiene el GitHub username desde user_profile o desde los metadatos de Supabase Auth.
+     * Si lo encuentra en Supabase Auth, lo persiste en user_profile para siguientes usos.
+     */
+    @Transactional
+    public String getGithubUsernameUnsafe(UUID userId) {
+        try {
+            UserProfile profile = UserProfile.findById(userId);
+            if (profile != null && profile.getGithubUsername() != null && !profile.getGithubUsername().isBlank()) {
+                return profile.getGithubUsername();
+            }
+
+            JsonNode user = supabaseAdmin.getUser(userId.toString());
+            String githubUsername = extractGithubUsername(user);
+            if (githubUsername != null && !githubUsername.isBlank() && profile != null) {
+                profile.setGithubUsername(githubUsername);
+                profile.setUpdatedAt(Instant.now());
+            }
+            return githubUsername;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public void setGithubUsernameUnsafe(UUID userId, String githubUsername) {
+        if (githubUsername == null || githubUsername.isBlank()) {
+            return;
+        }
+
+        UserProfile profile = UserProfile.findById(userId);
+        if (profile != null) {
+            profile.setGithubUsername(githubUsername.trim());
+            profile.setUpdatedAt(Instant.now());
+        }
+
+        try {
+            JsonNode user = supabaseAdmin.getUser(userId.toString());
+            ObjectNode metadata = mapper.createObjectNode();
+
+            String name = extractName(user);
+            if (name != null) metadata.put("name", name);
+
+            String role = extractRole(user);
+            if (role != null) metadata.put("role", role);
+
+            String orgId = extractOrgId(user);
+            if (orgId != null) metadata.put("organizationId", orgId);
+
+            metadata.put("githubUsername", githubUsername.trim());
+            metadata.put("github_username", githubUsername.trim());
+            supabaseAdmin.updateUser(userId.toString(), metadata);
+        } catch (Exception ignored) {
+            // The local user_profile update is enough when it exists. Metadata sync is best effort.
+        }
+    }
+
     private void requireAdmin() {
         if (!Roles.ADMIN.equals(userContext.role())) {
             throw new SecurityException("Solo los administradores pueden gestionar usuarios");
@@ -219,6 +278,54 @@ public class UserService {
         return null;
     }
 
+    private String extractGithubUsername(JsonNode user) {
+        JsonNode metadata = user.get("user_metadata");
+        String fromMetadata = extractGithubUsernameFromNode(metadata);
+        if (fromMetadata != null) return fromMetadata;
+
+        JsonNode identities = user.get("identities");
+        if (identities != null && identities.isArray()) {
+            for (JsonNode identity : identities) {
+                String provider = identity.path("provider").asText("");
+                if (!"github".equalsIgnoreCase(provider)) continue;
+
+                String fromIdentity = extractGithubUsernameFromNode(identity.get("identity_data"));
+                if (fromIdentity != null) return fromIdentity;
+            }
+        }
+
+        JsonNode appMetadata = user.get("app_metadata");
+        JsonNode providers = appMetadata != null ? appMetadata.get("providers") : null;
+        if (providers != null && providers.isArray()) {
+            for (JsonNode provider : providers) {
+                if ("github".equalsIgnoreCase(provider.asText())) {
+                    return extractGithubUsernameFromNode(metadata);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private String extractGithubUsernameFromNode(JsonNode node) {
+        if (node == null || node.isNull()) return null;
+
+        for (String key : new String[]{"user_name", "preferred_username", "github_username", "githubUsername", "login", "nickname"}) {
+            JsonNode value = node.get(key);
+            if (value != null && value.isTextual() && !value.asText().isBlank()) {
+                return value.asText();
+            }
+        }
+
+        JsonNode raw = node.get("raw_user_meta_data");
+        if (raw != null) {
+            String fromRaw = extractGithubUsernameFromNode(raw);
+            if (fromRaw != null) return fromRaw;
+        }
+
+        return null;
+    }
+
     /**
      * Construye un objeto JSON limpio con los datos del usuario para el frontend.
      */
@@ -228,6 +335,8 @@ public class UserService {
         result.put("email", user.get("email").asText());
         result.put("name", extractName(user));
         result.put("role", extractRole(user));
+        String githubUsername = extractGithubUsername(user);
+        if (githubUsername != null) result.put("githubUsername", githubUsername);
 
         JsonNode createdAt = user.get("created_at");
         if (createdAt != null) result.put("createdAt", createdAt.asText());

@@ -23,6 +23,7 @@ public class ChatService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Inject UserContext userContext;
+    @Inject NotificationService notificationService;
 
     @Transactional
     public CreateChatChannelResponse createChannel(CreateChatChannelRequest request) {
@@ -100,6 +101,17 @@ public class ChatService {
         message.persist();
 
         channel.setUpdatedAt(now);
+
+        UUID senderId = message.getUserId();
+        notificationService.notifyProjectTeam(
+                channel.getProject().id,
+                NotificationService.CHAT_MESSAGE,
+                "Mensaje de chat",
+                "Hay un mensaje nuevo en #" + channel.getName() + ".",
+                "project",
+                channel.getProject().id,
+                senderId
+        );
 
         return toPayload(message);
     }

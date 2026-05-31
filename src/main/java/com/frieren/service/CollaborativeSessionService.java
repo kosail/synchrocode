@@ -46,6 +46,7 @@ public class CollaborativeSessionService {
         if (project == null || !project.projectActive) {
             throw new IllegalArgumentException("Project not found or inactive");
         }
+        ensureProjectInCurrentOrganization(project);
 
         CollaborativeSession session = new CollaborativeSession();
         session.setId(UUID.randomUUID());
@@ -54,6 +55,9 @@ public class CollaborativeSessionService {
             Task task = Task.findById(request.taskId());
             if (task == null) {
                 throw new IllegalArgumentException("Task not found");
+            }
+            if (!project.id.equals(task.projectId)) {
+                throw new IllegalArgumentException("Task does not belong to this project");
             }
             session.setTask(task);
         }
@@ -78,7 +82,15 @@ public class CollaborativeSessionService {
     }
 
     public List<CollaborativeSessionSummaryResponse> listActiveSessions() {
-        return CollaborativeSession.<CollaborativeSession>list("statusActive", true)
+        UUID orgId = userContext.getOrganizationId();
+        if (orgId == null) {
+            return List.of();
+        }
+
+        return CollaborativeSession.<CollaborativeSession>list(
+                        "statusActive = true and project.organizationId = ?1",
+                        orgId
+                )
                 .stream()
                 .map(this::toSummary)
                 .toList();
@@ -87,6 +99,7 @@ public class CollaborativeSessionService {
     @Transactional
     public JoinCollaborativeSessionResponse joinSession(UUID sessionId, String passcode) {
         CollaborativeSession session = getActiveSessionOrThrow(sessionId);
+        ensureProjectInCurrentOrganization(session.getProject());
         if (passcode == null || !passcode.equals(session.getSessionPasscode())) {
             throw new SecurityException("Invalid session passcode");
         }
@@ -103,6 +116,9 @@ public class CollaborativeSessionService {
 
     @Transactional
     public void leaveSession(UUID sessionId) {
+        CollaborativeSession session = getActiveSessionOrThrow(sessionId);
+        ensureProjectInCurrentOrganization(session.getProject());
+
         SessionParticipantId id = new SessionParticipantId();
         id.setSessionId(sessionId);
         id.setUserId(userContext.getUserId());
@@ -119,6 +135,9 @@ public class CollaborativeSessionService {
     public boolean isActiveParticipant(UUID sessionId, UUID userId) {
         CollaborativeSession session = CollaborativeSession.findById(sessionId);
         if (session == null || !Boolean.TRUE.equals(session.getStatusActive())) {
+            return false;
+        }
+        if (!isProjectInCurrentOrganization(session.getProject())) {
             return false;
         }
 
@@ -176,12 +195,7 @@ public class CollaborativeSessionService {
     public void autoJoinIfMissing(UUID sessionId, UUID userId) {
         if (!isActiveParticipant(sessionId, userId)) {
             CollaborativeSession session = CollaborativeSession.findById(sessionId);
-            if (session != null) {
-                // Re-activar sesión si estaba inactiva por error
-                if (!Boolean.TRUE.equals(session.getStatusActive())) {
-                    session.setStatusActive(true);
-                    session.setEndedAt(null);
-                }
+            if (session != null && Boolean.TRUE.equals(session.getStatusActive()) && isProjectInCurrentOrganization(session.getProject())) {
                 joinInternal(session, userId, OffsetDateTime.now());
             }
         }
@@ -202,6 +216,7 @@ public class CollaborativeSessionService {
                     state.lockOwner = null;
                     touchSession(sessionId);
                 }
+                leaveUser(sessionId, userId);
                 return state.snapshot();
             }
         } catch (Exception e) {
@@ -212,8 +227,17 @@ public class CollaborativeSessionService {
 
     @Transactional
     void closeSessionIfStillEmpty(UUID sessionId) {
-        // Logica deshabilitada temporalmente para pruebas de desarrollo
-        System.out.println("Session closure skipped for: " + sessionId);
+        CollaborativeSession session = CollaborativeSession.findById(sessionId);
+        if (session == null || !Boolean.TRUE.equals(session.getStatusActive())) {
+            return;
+        }
+
+        if (countActiveParticipants(sessionId) == 0) {
+            session.setStatusActive(false);
+            session.setEndedAt(OffsetDateTime.now());
+            runtimeStateBySession.remove(sessionId);
+            lastHeartbeatCache.remove(sessionId);
+        }
     }
 
     private CollaborativeSessionSummaryResponse toSummary(CollaborativeSession session) {
@@ -312,12 +336,21 @@ public class CollaborativeSessionService {
         if (session == null) {
             throw new IllegalArgumentException("Session not found: " + sessionId);
         }
-        // Forzar activación si se intenta usar una sesión que existe
         if (!Boolean.TRUE.equals(session.getStatusActive())) {
-            session.setStatusActive(true);
-            session.setEndedAt(null);
+            throw new IllegalArgumentException("Session is not active: " + sessionId);
         }
         return session;
+    }
+
+    private void ensureProjectInCurrentOrganization(Project project) {
+        if (!isProjectInCurrentOrganization(project)) {
+            throw new SecurityException("No tienes acceso a este proyecto");
+        }
+    }
+
+    private boolean isProjectInCurrentOrganization(Project project) {
+        UUID orgId = userContext.getOrganizationId();
+        return project != null && orgId != null && orgId.equals(project.organizationId);
     }
 
     private SessionParticipantId participantId(UUID sessionId, UUID userId) {
