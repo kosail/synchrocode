@@ -276,7 +276,7 @@ public class TaskService {
         evidence.fileSizeBytes = fileSizeBytes;
         evidence.uploadedBy = userContext.getUserId();
         evidence.uploadedAt = OffsetDateTime.now();
-        
+
         evidence.persist();
         return evidence;
     }

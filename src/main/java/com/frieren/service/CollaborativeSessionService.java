@@ -193,9 +193,21 @@ public class CollaborativeSessionService {
     }
 
     @Transactional
-    public void onSocketDisconnected(UUID sessionId, UUID userId) {
-        // Comentado para evitar que el usuario sea marcado como 'fuera' por parpadeos de red
-        System.out.println("Socket disconnected for user: " + userId + " in session: " + sessionId);
+    public SessionSnapshot onSocketDisconnected(UUID sessionId, UUID userId) {
+        try {
+            RuntimeSessionState state = state(sessionId);
+            synchronized (state) {
+                if (userId.equals(state.lockOwner)) {
+                    System.out.println("Auto-releasing lock for disconnected user: " + userId + " in session: " + sessionId);
+                    state.lockOwner = null;
+                    touchSession(sessionId);
+                }
+                return state.snapshot();
+            }
+        } catch (Exception e) {
+            System.err.println("Error handling socket disconnection for user: " + userId + " - " + e.getMessage());
+            return new SessionSnapshot(new java.util.HashMap<>(), null);
+        }
     }
 
     @Transactional
