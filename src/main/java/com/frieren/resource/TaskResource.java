@@ -50,9 +50,21 @@ public class TaskResource {
         return service.updateStatus(id, statusId);
     }
 
+    @PUT
+    @Path("/{id}/status/{statusId}")
+    public Task updateStatusWithPut(@PathParam("id") UUID id, @PathParam("statusId") Short statusId) {
+        return service.updateStatus(id, statusId);
+    }
+
     @PATCH
     @Path("/{id}/assign/{userId}")
     public Task assignTask(@PathParam("id") UUID id, @PathParam("userId") UUID userId) {
+        return service.assignTask(id, userId);
+    }
+
+    @PUT
+    @Path("/{id}/assign/{userId}")
+    public Task assignTaskWithPut(@PathParam("id") UUID id, @PathParam("userId") UUID userId) {
         return service.assignTask(id, userId);
     }
 

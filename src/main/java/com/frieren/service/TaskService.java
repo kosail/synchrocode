@@ -238,22 +238,6 @@ public class TaskService {
 
         checkProjectAccess(existing.projectId);
 
-        boolean canUpdateAny = hasPermission("tasks", "update");
-        boolean canUpdateOwn = hasPermission("tasks", "update_own");
-
-        if (!canUpdateAny) {
-            if (canUpdateOwn) {
-                UUID userId = userContext.getUserId();
-                if (!userId.equals(existing.assignedTo) && !userId.equals(existing.createdBy)) {
-                    LOG.warning("Acceso denegado: Usuario con update_own intentó mover tarea ajena.");
-                    throw new SecurityException("Solo puedes cambiar el estado de tus propias tareas.");
-                }
-            } else {
-                LOG.warning("Acceso denegado: Usuario no tiene permiso update ni update_own.");
-                throw new SecurityException("No tienes permiso para actualizar tareas.");
-            }
-        }
-
         existing.statusId = statusId;
         var now = OffsetDateTime.now();
         existing.updatedAt = now;
